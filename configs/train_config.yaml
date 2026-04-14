@@ -1,0 +1,48 @@
+# ── Model ────────────────────────────────────────────────────────────────────
+model:
+  name: "MONAI/Llama3-VILA-M3-8B"
+  conv_mode: "llama_3"            # conversation template expected by VILA-M3
+
+# ── LoRA ─────────────────────────────────────────────────────────────────────
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules:                 # attention projection matrices only
+    - "q_proj"
+    - "v_proj"
+  bias: "none"
+  task_type: "CAUSAL_LM"
+
+# ── Data ─────────────────────────────────────────────────────────────────────
+data:
+  ctrate_root: "/data/ct_rate"           # where CT-RATE is downloaded
+  lidc_root: "/data/lidc_idri"           # where LIDC-IDRI is downloaded
+  processed_root: "/data/processed"      # instruction pairs written here
+  holdout_fraction: 0.10                 # fraction of CT-RATE kept for retrieval eval
+  max_slices: 16                         # key axial slices sampled per volume
+  slice_size: 224                        # resize slices to this resolution
+
+# ── Training ─────────────────────────────────────────────────────────────────
+train:
+  output_dir: "./checkpoints"
+  num_epochs: 3
+  per_device_batch_size: 1
+  gradient_accumulation_steps: 4        # effective batch size = 4
+  learning_rate: 1.0e-4
+  lr_scheduler: "cosine"
+  warmup_ratio: 0.03
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+  bf16: true                            # L40 supports bf16
+  save_strategy: "epoch"
+  logging_steps: 50
+  dataloader_num_workers: 4
+  seed: 42
+
+# ── Evaluation ───────────────────────────────────────────────────────────────
+eval:
+  retrieval_k: [1, 5, 10]              # Recall@K values
+  iou_thresholds: [0.1, 0.25, 0.5]    # IoU thresholds for mAP
+  batch_size: 8
+  index_path: "./retrieval_index"       # FAISS index saved here
