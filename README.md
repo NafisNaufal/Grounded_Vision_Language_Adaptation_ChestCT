@@ -34,7 +34,7 @@ without requiring bounding box annotations.
 - Python 3.10
 - CUDA 12.2
 - 3× NVIDIA L40 (48 GB VRAM) or equivalent
-- ~3 TB free disk space for CT-RATE + LIDC-IDRI
+- ~2.2 TB free disk space (5,000 CT-RATE volumes + LIDC-IDRI)
 
 ---
 
@@ -47,7 +47,7 @@ cd icsdg
 
 # Clone VILA-M3 alongside (required for MONAI agent framework)
 git clone https://github.com/Project-MONAI/VLM-Radiology-Agent-Framework \
-    --recursive ~/projects/VILA-M3
+    --recursive ../VLM-Radiology-Agent-Framework
 
 # Install dependencies and configure environment
 bash setup.sh
@@ -64,9 +64,9 @@ Start both in separate terminal panes — they run independently and take time.
 
 ```bash
 # CT-RATE (HuggingFace: https://huggingface.co/datasets/ibrahimhamamci/CT-RATE)
-python src/data/download_ctrate.py --output /data/ct_rate
-# If the dataset requires a HuggingFace login:
-# python src/data/download_ctrate.py --output /data/ct_rate --hf_token <your_token>
+# Downloads 5,000 volumes (~2 TB). Set HF_TOKEN env var first.
+export HF_TOKEN=your_token_here
+python src/data/download_ctrate.py --output /data/ct_rate --max_volumes 5000
 
 # LIDC-IDRI (~125 GB, TCIA: https://www.cancerimagingarchive.net/collection/lidc-idri/)
 # Option A: automated via tcia_utils
@@ -102,7 +102,7 @@ python src/eval/eval_retrieval.py \
 
 python src/eval/eval_detection.py \
     --model_path MONAI/Llama3-VILA-M3-8B \
-    --vila_repo ~/projects/VILA-M3 \
+    --vila_repo ../VLM-Radiology-Agent-Framework \
     --output_json results/baseline_detection.json
 ```
 
@@ -128,7 +128,7 @@ python src/eval/eval_retrieval.py \
 python src/eval/eval_detection.py \
     --model_path MONAI/Llama3-VILA-M3-8B \
     --lora_adapter ./checkpoints/lora_adapter_final \
-    --vila_repo ~/projects/VILA-M3 \
+    --vila_repo ../VLM-Radiology-Agent-Framework \
     --output_json results/finetuned_detection.json
 ```
 
