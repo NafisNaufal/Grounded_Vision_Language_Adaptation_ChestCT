@@ -43,6 +43,6 @@ train:
 # ── Evaluation ───────────────────────────────────────────────────────────────
 eval:
   retrieval_k: [1, 5, 10]              # Recall@K values
-  iou_thresholds: [0.1, 0.25, 0.5]    # IoU thresholds for mAP
+  seg_metrics: ["dice", "iou"]         # segmentation-based detection metrics
   batch_size: 8
   index_path: "./retrieval_index"       # FAISS index saved here

@@ -1,96 +1,123 @@
 """
 download_ctrate.py
 ------------------
-Downloads the CT-RATE dataset from HuggingFace.
+Downloads a subset of CT-RATE from HuggingFace.
 
-CT-RATE (ibrahimhamamci/CT-RATE) contains:
-  - train/ and valid/ splits of 3D chest CT volumes (NIfTI .nii.gz)
-  - radiology_text_reports/ CSV files with paired report text
+Official source: https://huggingface.co/datasets/ibrahimhamamci/CT-RATE
+Paper: arXiv:2403.17834 (Hamamci et al., 2024)
+
+CT-RATE contains:
+  - 3D chest CT volumes (NIfTI .nii.gz)
+  - Paired radiology reports (CSV)
+
+Full dataset is ~21 TB. For LoRA fine-tuning, 500–1000 volumes is sufficient.
+The radiology_text_reports CSV (~few MB) is always downloaded in full.
 
 Usage:
-    python src/data/download_ctrate.py --output /data/ct_rate
+    # Download 500 volumes (recommended for fine-tuning, ~200 GB)
+    python src/data/download_ctrate.py --output /data/ct_rate --max_volumes 500
 
-The script is resumable: already-downloaded files are skipped.
+    # Download 1000 volumes (~400 GB)
+    python src/data/download_ctrate.py --output /data/ct_rate --max_volumes 1000
+
+    # Download everything (21 TB, not recommended)
+    python src/data/download_ctrate.py --output /data/ct_rate --max_volumes 0
 """
 
 import argparse
 import os
+import shutil
 from pathlib import Path
 
-from huggingface_hub import snapshot_download
-from tqdm import tqdm
+from huggingface_hub import HfFileSystem, hf_hub_download
 
 
 def parse_args():
     p = argparse.ArgumentParser()
+    p.add_argument("--output",      type=str, default="/data/ct_rate")
+    p.add_argument("--hf_token",    type=str, default=None)
     p.add_argument(
-        "--output",
-        type=str,
-        default="/data/ct_rate",
-        help="Directory to download CT-RATE into",
-    )
-    p.add_argument(
-        "--subset",
-        type=int,
-        default=None,
-        help="If set, download only this many volumes (for quick testing). "
-             "Leave unset to download the full dataset.",
-    )
-    p.add_argument(
-        "--hf_token",
-        type=str,
-        default=None,
-        help="HuggingFace token if the dataset requires authentication",
+        "--max_volumes", type=int, default=500,
+        help="Max number of train volumes to download. 0 = all (21 TB).",
     )
     return p.parse_args()
-
-
-def download_ctrate(output_dir: str, hf_token: str | None = None) -> None:
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
-
-    print(f"Downloading CT-RATE → {output_path}")
-    print("This may take several hours depending on your connection speed.")
-    print("The download is resumable — re-run the script if it is interrupted.\n")
-
-    snapshot_download(
-        repo_id="ibrahimhamamci/CT-RATE",
-        repo_type="dataset",
-        local_dir=str(output_path),
-        local_dir_use_symlinks=False,
-        token=hf_token,
-        ignore_patterns=["*.md", ".gitattributes"],  # skip non-data files
-    )
-
-    # Verify the expected top-level structure
-    expected = ["train", "valid", "radiology_text_reports"]
-    missing = [d for d in expected if not (output_path / d).exists()]
-    if missing:
-        print(f"\nWarning: expected directories not found: {missing}")
-        print("The dataset structure may differ from what was anticipated.")
-        print("Check the contents of", output_path)
-    else:
-        volumes = list(output_path.glob("train/**/*.nii.gz"))
-        reports_csv = list(output_path.glob("radiology_text_reports/*.csv"))
-        print(f"\nDownload complete.")
-        print(f"  Train volumes : {len(volumes)}")
-        print(f"  Report CSVs   : {len(reports_csv)}")
-        print(f"  Location      : {output_path}")
 
 
 def main():
     args = parse_args()
 
-    if args.hf_token is None:
-        args.hf_token = os.environ.get("HF_TOKEN")
+    output_path = Path(args.output)
+    output_path.mkdir(parents=True, exist_ok=True)
 
-    download_ctrate(args.output, hf_token=args.hf_token)
+    token = args.hf_token or os.environ.get("HF_TOKEN")
+    repo_id = "ibrahimhamamci/CT-RATE"
+    fs = HfFileSystem(token=token)
 
-    if args.subset is not None:
-        print(
-            f"\nNote: --subset {args.subset} was specified but snapshot_download "
-            "downloads everything. Filter during preprocessing instead."
+    # ── 1. Always download radiology reports (small, ~few MB) ────────────────
+    print("Downloading radiology text reports ...")
+    report_files = fs.glob(f"datasets/{repo_id}/radiology_text_reports/*.csv")
+    for rf in report_files:
+        rel = rf.replace(f"datasets/{repo_id}/", "")
+        dest = output_path / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if not dest.exists():
+            tmp = hf_hub_download(
+                repo_id=repo_id, repo_type="dataset",
+                filename=rel, token=token,
+            )
+            shutil.copy(tmp, dest)
+    print(f"  Reports saved to {output_path / 'radiology_text_reports'}")
+
+    # ── 2. Download train volumes up to --max_volumes ─────────────────────────
+    all_volumes = sorted(fs.glob(f"datasets/{repo_id}/train/**/*.nii.gz"))
+    if args.max_volumes > 0:
+        all_volumes = all_volumes[: args.max_volumes]
+        print(f"\nDownloading {len(all_volumes)} train volumes "
+              f"(--max_volumes {args.max_volumes}) ...")
+    else:
+        print(f"\nDownloading ALL {len(all_volumes)} train volumes (21 TB) ...")
+
+    for i, vf in enumerate(all_volumes, 1):
+        rel = vf.replace(f"datasets/{repo_id}/", "")
+        dest = output_path / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.exists():
+            continue
+        tmp = hf_hub_download(
+            repo_id=repo_id, repo_type="dataset",
+            filename=rel, token=token,
         )
+        shutil.copy(tmp, dest)
+        if i % 50 == 0 or i == len(all_volumes):
+            print(f"  {i}/{len(all_volumes)} volumes downloaded")
+
+    # ── 3. Download validation volumes (small split, used for retrieval eval) ─
+    valid_files = sorted(fs.glob(f"datasets/{repo_id}/valid/**/*.nii.gz"))
+    # Cap at same proportion as train
+    if args.max_volumes > 0:
+        n_valid = max(10, len(valid_files) * args.max_volumes // 50000)
+        valid_files = valid_files[:n_valid]
+    print(f"\nDownloading {len(valid_files)} validation volumes ...")
+    for vf in valid_files:
+        rel = vf.replace(f"datasets/{repo_id}/", "")
+        dest = output_path / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if not dest.exists():
+            tmp = hf_hub_download(
+                repo_id=repo_id, repo_type="dataset",
+                filename=rel, token=token,
+            )
+            shutil.copy(tmp, dest)
+
+    # ── Summary ───────────────────────────────────────────────────────────────
+    n_train = len(list((output_path / "train").glob("**/*.nii.gz")))
+    n_valid = len(list((output_path / "valid").glob("**/*.nii.gz")))
+    n_rep   = len(list((output_path / "radiology_text_reports").glob("*.csv")))
+    print(f"\nDownload complete.")
+    print(f"  Train volumes      : {n_train}")
+    print(f"  Validation volumes : {n_valid}")
+    print(f"  Report CSVs        : {n_rep}")
+    print(f"  Location           : {output_path}")
 
 
 if __name__ == "__main__":

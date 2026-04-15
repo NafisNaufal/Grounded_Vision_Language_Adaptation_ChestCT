@@ -7,7 +7,7 @@
 \begin{document}
 
 \title{Grounded Vision--Language Adaptation on Chest CT and Reports for
-Clinically-Oriented Zero-Shot Pulmonary Nodule Detection and Case Retrieval}
+Clinically-Oriented Zero-Shot Abnormality Detection and Case Retrieval}
 
 \author{Dionisius Seraf Saputra$^{1}$, Nafis Naufal Rahman$^{2}$}
 
@@ -80,20 +80,24 @@ split.
 \subsection*{Key Contributions}
 
 \begin{enumerate}
-  \item \textbf{Thoracic Instruction-Tuning Pipeline.} A parameter-efficient
-    fine-tuning strategy using LoRA that aligns VILA-M3's representations with
-    thoracic clinical language and chest CT visual patterns derived from CT-RATE
-    report pairs, enabling both detection and retrieval task conditioning.
+  \item \textbf{Routing-Specific Instruction-Tuning Pipeline.} A LoRA-based
+    fine-tuning strategy that trains VILA-M3 to correctly emit structured routing
+    tokens (e.g., \texttt{<VISTA3D(lung tumor)>}) in response to thoracic
+    clinical prompts derived from CT-RATE report pairs. Without this adaptation,
+    the pre-trained model does not reliably trigger the correct expert pathway for
+    chest CT queries.
 
-  \item \textbf{Expert Routing Evaluation.} Systematic assessment of the MONAI
-    VLM Agent Framework's dynamic routing mechanism, which delegates volumetric
-    spatial tasks to VISTA3D while preserving natural language grounding in the
-    VLM backbone.
+  \item \textbf{First Zero-Shot Pulmonary Nodule Detection via VLM Routing on
+    LIDC-IDRI.} Pulmonary nodules are too small for native VLM spatial resolution.
+    We demonstrate that routing to VISTA3D---prompted by the VLM's structured
+    output---overcomes this limitation and enables the first VLM-based zero-shot
+    detection evaluation on LIDC-IDRI. VISTA3D produces voxel-level segmentation
+    masks from which bounding boxes are derived and evaluated using IoU and mAP.
 
-  \item \textbf{Zero-Shot Cross-Dataset Validation.} A rigorous evaluation
-    protocol on LIDC-IDRI for pulmonary nodule localisation and on a CT-RATE
-    held-out split for text-to-image case retrieval, benchmarked against
-    supervised detection models and retrieval baselines.
+  \item \textbf{Dual-Task Unified Pipeline with CT-CLIP Baseline.} A single
+    fine-tuned model handles both segmentation routing and natural language case
+    retrieval. CT-CLIP~\cite{ctrate2024}, a published CT report--image matching
+    model trained on CT-RATE, serves as a direct retrieval baseline.
 \end{enumerate}
 
 
@@ -133,8 +137,9 @@ specialist models for tasks requiring high-resolution spatial reasoning. The
 MONAI VLM Agent Framework~\cite{monai2022} provides the infrastructure for
 this orchestration. Our work extends VILA-M3 to thoracic CT by fine-tuning the
 routing and language components on domain-specific data, and performs the first
-systematic zero-shot evaluation of the resulting system on an external nodule
-detection benchmark.
+systematic zero-shot segmentation evaluation of the resulting system on
+LIDC-IDRI---a benchmark that no VLM has previously addressed due to the
+fine-grained spatial scale of pulmonary nodules.
 
 
 % -----------------------------------------------------------------------
@@ -154,10 +159,10 @@ adaptation from evaluation:
     retrieval evaluation.
 
   \item \textbf{LIDC-IDRI}~\cite{lidc2011}: A reference database of 1{,}018
-    CT scans with expert-consensus bounding box annotations for pulmonary
-    nodules, contributed by four independent radiologists. This dataset is
-    withheld entirely from training and used only for zero-shot localisation
-    benchmarking.
+    CT scans with expert-consensus nodule annotations from four independent
+    radiologists, including both segmentation masks and derived bounding boxes.
+    This dataset is withheld entirely from training and used only for zero-shot
+    detection benchmarking.
 \end{itemize}
 
 \subsection{Model Architecture and Dynamic Routing}
@@ -186,16 +191,20 @@ The routing pipeline proceeds in three stages:
     sampling key axial slices at uniform anatomical intervals.
 
   \item \textbf{Task Classification and Routing.} The model classifies the
-    query intent into one of two pathways via the MONAI VLM Agent Framework.
-    Localisation queries trigger delegation to VISTA3D; retrieval queries are
-    handled internally through the VLM's embedding space.
+    query intent and emits a structured routing token in its output. Segmentation
+    queries produce a token of the form \texttt{<VISTA3D(lung tumor)>}, which the
+    MONAI VLM Agent Framework intercepts and dispatches to VISTA3D. Retrieval
+    queries are handled internally through the VLM's embedding space.
 
-  \item \textbf{Expert Execution and Response Fusion.} For localisation queries,
-    VISTA3D processes the full-resolution CT volume and returns voxel-level
-    segmentation masks and 3D bounding coordinates. The VLM integrates these
-    spatial outputs with textual context to produce a grounded, language-anchored
-    response. For retrieval queries, the VLM embedding is compared against the
-    CT-RATE corpus index using cosine similarity.
+  \item \textbf{Expert Execution and Response Synthesis.} VISTA3D processes the
+    full-resolution CT volume with the \texttt{lung tumor} class prompt and
+    returns a voxel-level segmentation mask. The framework converts this mask into
+    a 2D overlay image and a textual colour description, which is passed back to
+    VILA-M3 as a new context turn. Bounding boxes are derived from the mask
+    extents for detection evaluation. The VLM synthesises a final,
+    language-anchored clinical response from this structured expert output. For
+    retrieval queries, the VLM embedding is compared against the CT-RATE corpus
+    index using cosine similarity.
 \end{enumerate}
 
 This separation of concerns preserves the VLM's semantic reasoning capacity
@@ -213,10 +222,11 @@ from the CT-RATE training split by converting each CT volume and paired report
 into two instruction types:
 
 \begin{itemize}
-  \item \textbf{Detection instructions.} Input: a prompt of the form
+  \item \textbf{Detection routing instructions.} Input: a prompt of the form
     \textit{``Identify and localise thoracic abnormalities in the provided CT
-    scan.''} Output: a structured description referencing anatomical regions
-    and abnormality types extracted from the paired radiology report.
+    scan.''} Output: a response that includes the structured routing token
+    \texttt{<VISTA3D(lung tumor)>} when the paired report mentions pulmonary
+    findings, teaching the model when to delegate spatial localisation to VISTA3D.
 
   \item \textbf{Retrieval instructions.} Input: a prompt of the form
     \textit{``Retrieve the most similar case to: [report excerpt].''} Output:
@@ -241,42 +251,45 @@ training split.
 The adapted framework is compared against two categories of baselines:
 
 \begin{enumerate}
-  \item \textbf{Detection baselines.} Supervised 3D models trained on
-    LIDC-IDRI annotations directly: nnU-Net~\cite{nnunet2021} and a 3D
-    Faster R-CNN variant. These represent an upper bound achievable with
-    full annotation access and establish the cost of annotation-free
-    generalisation.
+  \item \textbf{Detection baselines.} Supervised 3D models trained directly on
+    LIDC-IDRI annotations: nnU-Net~\cite{nnunet2021} as a self-configuring
+    upper bound, and VISTA3D invoked directly with \texttt{lung tumor} without
+    VLM routing, to isolate the contribution of instruction-tuned routing over
+    na\"ive expert invocation.
 
-  \item \textbf{Retrieval baselines.} Zero-shot retrieval using the
-    pre-fine-tuned VILA-M3 8B checkpoint (no CT-RATE adaptation) and
-    MedCLIP~\cite{medclip2022}, representing the performance obtainable
-    from generalist medical representations without thoracic-specific
-    instruction tuning.
+  \item \textbf{Retrieval baselines.} CT-CLIP~\cite{ctrate2024}, a published
+    CT report--image contrastive model trained on CT-RATE, as a direct
+    domain-matched baseline; and the pre-fine-tuned VILA-M3 8B checkpoint
+    (no CT-RATE LoRA) to measure the gain from routing-specific adaptation.
 \end{enumerate}
 
 \subsection{Evaluation Metrics}
 
-\textbf{Zero-Shot Pulmonary Nodule Localisation (LIDC-IDRI).}
-Performance is measured using Intersection over Union (IoU) and mean Average
-Precision (mAP) computed against the consensus bounding box annotations. These
-metrics penalise spatial inaccuracies rigorously, ensuring that predictions
-reflect genuine localisation rather than coarse presence detection.
+\textbf{Zero-Shot Abnormality Detection (LIDC-IDRI).}
+Detection is performed via voxel-level segmentation: VISTA3D produces a
+binary mask for the \texttt{lung tumor} class, which is evaluated against
+the four-radiologist consensus contours from LIDC-IDRI. Performance is
+measured using Dice Similarity Coefficient (DSC) as the primary metric and
+Intersection over Union (IoU) as the secondary metric. These overlap-based
+metrics are the standard for segmentation-based detection in medical imaging
+and directly reflect the spatial precision of nodule localisation.
 
 \textbf{Text-to-Image Case Retrieval (CT-RATE hold-out).}
 Performance is measured using Recall@$K$ for $K \in \{1, 5, 10\}$. In clinical
 triage, retrieving the correct historical case within the top-$K$ results
-translates directly to workflow efficiency; Recall@$K$ therefore provides a
-practical utility measure for semantic case search.
+translates directly to workflow efficiency; Recall@$K$ provides a direct measure
+of the model's practical utility for semantic case search.
 
 \subsection{Expected Outcomes}
 
-The fine-tuned framework is expected to demonstrate meaningful zero-shot
-localisation improvements over the pre-fine-tuned VILA-M3 baseline on LIDC-IDRI,
-while remaining below supervised models trained on LIDC-IDRI annotations---a
-gap that quantifies the residual cost of annotation-free transfer. For case
-retrieval, Recall@$K$ improvements over MedCLIP and the pre-fine-tuned baseline
-on the CT-RATE hold-out split would confirm that thoracic instruction tuning
-yields clinically useful semantic embeddings.
+The fine-tuned model is expected to achieve higher DSC and IoU on LIDC-IDRI
+than both the pre-fine-tuned VILA-M3 baseline and direct VISTA3D invocation,
+demonstrating that routing-specific instruction tuning improves spatial
+grounding beyond the model's default behaviour. A gap will remain versus the
+supervised nnU-Net upper bound, quantifying the residual cost of
+annotation-free transfer. For retrieval, Recall@$K$ improvements over CT-CLIP
+and the pre-fine-tuned baseline would confirm that thoracic LoRA adaptation
+yields stronger domain-specific embeddings.
 
 
 % -----------------------------------------------------------------------

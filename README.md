@@ -63,11 +63,20 @@ source ~/projects/icsdg_venv/bin/activate
 Start both in separate terminal panes — they run independently and take time.
 
 ```bash
-# CT-RATE (~several hundred GB, from HuggingFace)
+# CT-RATE (HuggingFace: https://huggingface.co/datasets/ibrahimhamamci/CT-RATE)
 python src/data/download_ctrate.py --output /data/ct_rate
+# If the dataset requires a HuggingFace login:
+# python src/data/download_ctrate.py --output /data/ct_rate --hf_token <your_token>
 
-# LIDC-IDRI (~125 GB, via pylidc from TCIA)
+# LIDC-IDRI (~125 GB, TCIA: https://www.cancerimagingarchive.net/collection/lidc-idri/)
+# Option A: automated via tcia_utils
 python src/data/download_lidc.py --output /data/lidc_idri
+
+# Option B: if you already downloaded via the NBIA Data Retriever manually
+python src/data/download_lidc.py \
+    --output /data/lidc_idri \
+    --dicom_home /path/to/your/dicoms \
+    --skip_download
 ```
 
 ### 2. Preprocess
@@ -185,5 +194,5 @@ icsdg/
 ## Acknowledgements
 
 Built on [VILA-M3](https://github.com/Project-MONAI/VLM-Radiology-Agent-Framework)
-by NVIDIA / MONAI. Datasets: [CT-RATE](https://huggingface.co/datasets/ibrahimhamamci/CT-RATE),
-[LIDC-IDRI](https://www.cancerimagingarchive.net/collection/lidc-idri/).
+by NVIDIA / MONAI. Datasets: [CT-RATE](https://huggingface.co/datasets/ibrahimhamamci/CT-RATE)
+· [LIDC-IDRI](https://www.cancerimagingarchive.net/collection/lidc-idri/).

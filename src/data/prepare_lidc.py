@@ -89,6 +89,60 @@ def load_dicom_series(dicom_dir: Path) -> np.ndarray:
     return np.stack(slices, axis=0)  # (Z, H, W)
 
 
+# ── Consensus mask builder ────────────────────────────────────────────────────
+
+def _build_consensus_mask(
+    scan_meta: dict,
+    dicom_dir: Path,
+    masks_dir: Path,
+    volume_id: str,
+    vol_shape: tuple,
+) -> str | None:
+    """
+    Build a binary consensus segmentation mask from pylidc nodule annotations.
+    A voxel is marked positive if ≥3 radiologists included it in their contour.
+    Saves as NIfTI to masks_dir/<volume_id>_gt.nii.gz and returns the path.
+    """
+    try:
+        import pylidc as pl
+        import nibabel as nib
+
+        masks_dir.mkdir(parents=True, exist_ok=True)
+        out_path = masks_dir / f"{volume_id}_gt.nii.gz"
+        if out_path.exists():
+            return str(out_path)
+
+        scan = pl.query(pl.Scan).filter(
+            pl.Scan.patient_id == scan_meta["patient_id"]
+        ).first()
+        if scan is None:
+            return None
+
+        consensus_mask = np.zeros(vol_shape, dtype=np.uint8)
+        for cluster in scan.cluster_annotations(clevel=0.5):
+            if len(cluster) < 3:
+                continue
+            # build_mask returns (mask, cbbox, masks) - use the full-volume mask
+            cmask, cbbox, _ = pl.utils.consensus(cluster, clevel=0.5, pad=0)
+            slc = (
+                slice(cbbox[0].start, cbbox[0].stop),
+                slice(cbbox[1].start, cbbox[1].stop),
+                slice(cbbox[2].start, cbbox[2].stop),
+            )
+            # pylidc mask is (x, y, z); our volume is (z, y, x) — transpose
+            consensus_mask[slc[2], slc[1], slc[0]] |= cmask.transpose(2, 1, 0)
+
+        nib.save(
+            nib.Nifti1Image(consensus_mask, affine=np.eye(4)),
+            str(out_path),
+        )
+        return str(out_path)
+
+    except Exception as e:
+        print(f"  Warning: could not build consensus mask for {volume_id}: {e}")
+        return None
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def parse_args():
@@ -153,7 +207,10 @@ def main():
             print(f"  Warning: skipping {patient_id}: {e}")
             continue
 
-        gt_boxes = [n["bbox_ijk"] for n in scan_meta["nodules"]]
+        # Build consensus segmentation mask from pylidc annotations
+        gt_mask_path = _build_consensus_mask(
+            scan_meta, dicom_dir, output_root / "masks", volume_id, vol.shape
+        )
 
         records.append(
             {
@@ -161,20 +218,20 @@ def main():
                 "volume_id": volume_id,
                 "patient_id": patient_id,
                 "scan_id": scan_id,
+                "nii_path": str(dicom_dir),               # full-res path for VISTA3D
                 "images": slice_paths,
                 "sampled_z_indices": z_indices,
-                "volume_shape": list(vol.shape),          # (Z, H, W) for bbox scaling
+                "volume_shape": list(vol.shape),
                 "pixel_spacing": scan_meta["pixel_spacing"],
                 "slice_thickness": scan_meta["slice_thickness"],
-                "gt_boxes_ijk": gt_boxes,                 # ground-truth bounding boxes
+                "gt_mask_path": gt_mask_path,             # consensus segmentation mask
                 "conversations": [
                     {
                         "from": "human",
                         "value": (
                             "<image>\n" * len(slice_paths)
                             + "Identify and localise pulmonary nodules in the "
-                            "provided chest CT scan. Return the 3D bounding box "
-                            "coordinates for each detected nodule."
+                            "provided chest CT scan."
                         ),
                     }
                 ],

@@ -1,42 +1,38 @@
 """
 download_lidc.py
 ----------------
-Downloads and indexes the LIDC-IDRI dataset via pylidc.
+Downloads the LIDC-IDRI dataset from TCIA (The Cancer Imaging Archive)
+and builds a nodule annotation index.
 
-pylidc is a Python API that wraps the LIDC-IDRI dataset. On first run it
-downloads the DICOM files from TCIA (~125 GB). Subsequent runs use the local
-cache.
+Official source: https://www.cancerimagingarchive.net/collection/lidc-idri/
+Paper: Armato et al., Med. Phys. 38:915-931, 2011
+
+Download options (choose one):
+  A) tcia_utils Python package  ← automated, used by this script
+  B) NBIA Data Retriever GUI     ← manual, from https://wiki.cancerimagingarchive.net/display/NBIA
+  C) nbiatoolkit CLI             ← alternative to tcia_utils
+
+After DICOM download, this script also writes:
+    /data/lidc_idri/nodule_annotations.json
 
 Usage:
     python src/data/download_lidc.py --output /data/lidc_idri
 
-After download, this script also writes a single annotations JSON file:
-    /data/lidc_idri/nodule_annotations.json
-
-Each entry in that file is one consensus nodule cluster:
-    {
-        "scan_id": str,
-        "patient_id": str,
-        "slice_thickness": float,
-        "pixel_spacing": [float, float],
-        "nodules": [
-            {
-                "nodule_id": int,
-                "bbox_ijk":  [z_min, y_min, x_min, z_max, y_max, x_max],
-                "malignancy": float,       # mean radiologist malignancy score
-                "diameter_mm": float
-            },
-            ...
-        ]
-    }
+    # If DICOMs are already downloaded (e.g. via NBIA Data Retriever):
+    python src/data/download_lidc.py \
+        --output /data/lidc_idri \
+        --dicom_home /path/to/existing/dicoms \
+        --skip_download
 """
 
 import argparse
 import json
-import os
 from pathlib import Path
 
 import numpy as np
+
+
+TCIA_COLLECTION = "LIDC-IDRI"
 
 
 def parse_args():
@@ -45,29 +41,64 @@ def parse_args():
         "--output",
         type=str,
         default="/data/lidc_idri",
-        help="Directory where LIDC-IDRI DICOM files will be stored",
+        help="Root directory for LIDC-IDRI data and annotations",
     )
     p.add_argument(
         "--dicom_home",
         type=str,
         default=None,
-        help="If DICOM files are already downloaded, pass the path here "
-             "so pylidc does not re-download them.",
+        help="Path where DICOM files are (or will be) stored. "
+             "Defaults to <output>/dicoms",
+    )
+    p.add_argument(
+        "--skip_download",
+        action="store_true",
+        help="Skip DICOM download (use if DICOMs are already present)",
     )
     return p.parse_args()
 
 
+# ── Option A: download via tcia_utils ────────────────────────────────────────
+
+def download_via_tcia_utils(dicom_home: Path) -> None:
+    try:
+        from tcia_utils import nbia  # type: ignore
+    except ImportError:
+        raise ImportError(
+            "tcia_utils is not installed. Run: pip install tcia_utils\n"
+            "Alternatively, download LIDC-IDRI manually via the NBIA Data "
+            "Retriever from:\n"
+            "  https://wiki.cancerimagingarchive.net/display/NBIA/Downloading+TCIA+Images"
+        )
+
+    print(f"Fetching series list for collection: {TCIA_COLLECTION}")
+    series_list = nbia.getSeries(collection=TCIA_COLLECTION)
+    print(f"Found {len(series_list)} series")
+
+    dicom_home.mkdir(parents=True, exist_ok=True)
+    print(f"Downloading DICOMs to {dicom_home}")
+    print("This will take a while (~125 GB). The download is resumable.\n")
+
+    nbia.downloadSeries(
+        series_list,
+        path=str(dicom_home),
+        format="path",
+    )
+
+    print(f"\nDICOM download complete: {dicom_home}")
+
+
+# ── pylidc annotation index ───────────────────────────────────────────────────
+
 def configure_pylidc(dicom_home: str) -> None:
-    """Write a pylidc config so it knows where to look for DICOM files."""
     import configparser
 
     config = configparser.ConfigParser()
     config["pylidc"] = {"dicom_path": dicom_home}
-
     cfg_path = Path.home() / ".pylidcrc"
     with open(cfg_path, "w") as f:
         config.write(f)
-    print(f"pylidc configured: dicom_path={dicom_home}")
+    print(f"pylidc configured → dicom_path: {dicom_home}")
 
 
 def build_annotation_index(output_dir: Path) -> None:
@@ -78,71 +109,59 @@ def build_annotation_index(output_dir: Path) -> None:
             "pylidc is not installed. Run: pip install pylidc"
         )
 
-    print("Building nodule annotation index from LIDC-IDRI ...")
-    print("(This will download DICOM files from TCIA if not already present — ~125 GB)\n")
+    print("\nBuilding nodule annotation index ...")
+    scans = pl.query(pl.Scan).all()
+    print(f"Found {len(scans)} scans in pylidc database")
 
     records = []
-    scans = pl.query(pl.Scan).all()
-    print(f"Found {len(scans)} CT scans in LIDC-IDRI\n")
-
     for scan in scans:
         try:
-            # Cluster annotations with ≥3 radiologist markings (consensus nodules)
-            nodule_clusters = scan.cluster_annotations(clevel=0.5)
+            clusters = scan.cluster_annotations(clevel=0.5)
         except Exception as e:
-            print(f"  Skipping scan {scan.patient_id}: {e}")
+            print(f"  Skipping {scan.patient_id}: {e}")
             continue
 
         nodules = []
-        for i, cluster in enumerate(nodule_clusters):
+        for i, cluster in enumerate(clusters):
+            # Require at least 3 of 4 radiologists to have marked the nodule
             if len(cluster) < 3:
-                # Fewer than 3 radiologists marked this — skip low-confidence
                 continue
 
-            # Build consensus bounding box from all annotations in the cluster
             all_bboxes = np.array([ann.bbox_matrix() for ann in cluster])
             bbox_min = all_bboxes[:, :, 0].min(axis=0).tolist()  # [z, y, x]
             bbox_max = all_bboxes[:, :, 1].max(axis=0).tolist()
 
-            malignancy_scores = [
-                ann.malignancy for ann in cluster if ann.malignancy is not None
-            ]
-            mean_malignancy = float(np.mean(malignancy_scores)) if malignancy_scores else None
+            malignancy = [a.malignancy for a in cluster if a.malignancy is not None]
+            diameters = [a.diameter for a in cluster if a.diameter is not None]
 
-            diameters = [ann.diameter for ann in cluster if ann.diameter is not None]
-            mean_diameter = float(np.mean(diameters)) if diameters else None
-
-            nodules.append(
-                {
-                    "nodule_id": i,
-                    "bbox_ijk": bbox_min + bbox_max,   # [z0,y0,x0, z1,y1,x1]
-                    "malignancy": mean_malignancy,
-                    "diameter_mm": mean_diameter,
-                }
-            )
+            nodules.append({
+                "nodule_id": i,
+                "malignancy": float(np.mean(malignancy)) if malignancy else None,
+                "diameter_mm": float(np.mean(diameters)) if diameters else None,
+            })
 
         if not nodules:
             continue
 
-        records.append(
-            {
-                "scan_id": str(scan.id),
-                "patient_id": scan.patient_id,
-                "slice_thickness": scan.slice_thickness,
-                "pixel_spacing": [scan.pixel_spacing, scan.pixel_spacing],
-                "nodules": nodules,
-            }
-        )
+        records.append({
+            "scan_id": str(scan.id),
+            "patient_id": scan.patient_id,
+            "slice_thickness": scan.slice_thickness,
+            "pixel_spacing": [scan.pixel_spacing, scan.pixel_spacing],
+            "nodules": nodules,
+        })
 
     out_path = output_dir / "nodule_annotations.json"
     with open(out_path, "w") as f:
         json.dump(records, f, indent=2)
 
-    total_nodules = sum(len(r["nodules"]) for r in records)
-    print(f"\nAnnotation index written to {out_path}")
+    total = sum(len(r["nodules"]) for r in records)
+    print(f"Annotation index written → {out_path}")
     print(f"  Scans with ≥1 consensus nodule : {len(records)}")
-    print(f"  Total consensus nodule clusters : {total_nodules}")
+    print(f"  Total consensus nodule clusters : {total}")
 
+
+# ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
     args = parse_args()
@@ -150,10 +169,18 @@ def main():
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    dicom_home = args.dicom_home or str(output_dir / "dicoms")
-    Path(dicom_home).mkdir(parents=True, exist_ok=True)
+    dicom_home = Path(args.dicom_home) if args.dicom_home else output_dir / "dicoms"
 
-    configure_pylidc(dicom_home)
+    if not args.skip_download:
+        download_via_tcia_utils(dicom_home)
+    else:
+        print(f"Skipping download. Using existing DICOMs at {dicom_home}")
+        if not dicom_home.exists():
+            raise FileNotFoundError(
+                f"--skip_download set but {dicom_home} does not exist."
+            )
+
+    configure_pylidc(str(dicom_home))
     build_annotation_index(output_dir)
 
 
