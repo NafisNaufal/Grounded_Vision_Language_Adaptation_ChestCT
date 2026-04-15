@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
 # setup.sh — run once on the server before anything else
 # Usage: bash setup.sh
+#
+# Assumes conda is available (base environment active).
+# Creates a conda environment named 'icsdg' with Python 3.10.
 set -e
 
+CONDA_ENV="icsdg"
 VILA_M3_REPO="$HOME/projects/VILA-M3_nafis/VLM-Radiology-Agent-Framework"
-VENV_DIR="$HOME/projects/icsdg_venv"
 
-echo "==> Creating virtual environment at $VENV_DIR"
-python3.10 -m venv "$VENV_DIR"
-source "$VENV_DIR/bin/activate"
+echo "==> Creating conda environment: $CONDA_ENV (python=3.10)"
+conda create -y -n "$CONDA_ENV" python=3.10
+
+echo "==> Activating $CONDA_ENV"
+# shellcheck disable=SC1091
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate "$CONDA_ENV"
 
 echo "==> Upgrading pip"
 pip install --upgrade pip
@@ -20,7 +27,6 @@ echo "==> Installing VILA-M3 in editable mode"
 pip install -e "$VILA_M3_REPO"
 
 echo "==> Installing flash-attention (may take a few minutes)"
-# Required by VILA-M3 for efficient attention on long sequences
 pip install flash-attn --no-build-isolation
 
 echo "==> Creating data directories"
@@ -28,4 +34,4 @@ mkdir -p /data/ct_rate /data/lidc_idri /data/processed
 
 echo ""
 echo "Setup complete. Activate with:"
-echo "  source $VENV_DIR/bin/activate"
+echo "  conda activate $CONDA_ENV"
