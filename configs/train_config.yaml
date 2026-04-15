@@ -16,9 +16,9 @@ lora:
 
 # ── Data ─────────────────────────────────────────────────────────────────────
 data:
-  ctrate_root: "/data/ct_rate"           # where CT-RATE is downloaded
-  lidc_root: "/data/lidc_idri"           # where LIDC-IDRI is downloaded
-  processed_root: "/data/processed"      # instruction pairs written here
+  ctrate_root: "/mnt/nas-hpg9/adhi/data/ct_rate"
+  lidc_root: "/mnt/nas-hpg9/adhi/data/lidc_idri"
+  processed_root: "/mnt/nas-hpg9/adhi/data/processed"
   holdout_fraction: 0.10                 # fraction of CT-RATE kept for retrieval eval
   max_slices: 16                         # key axial slices sampled per volume
   slice_size: 224                        # resize slices to this resolution
