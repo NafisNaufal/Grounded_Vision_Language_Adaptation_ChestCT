@@ -19,7 +19,7 @@ Usage:
     python src/eval/eval_detection.py \\
         --config configs/train_config.yaml \\
         --eval_json /data/processed/lidc_eval.json \\
-        --vila_repo ~/projects/VILA-M3_nafis/VLM-Radiology-Agent-Framework \\
+        --vila_repo ../VLM-Radiology-Agent-Framework \\
         --condition finetuned \\
         --lora_adapter ./checkpoints/lora_adapter_final
 """
@@ -121,7 +121,7 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--config",       default="configs/train_config.yaml")
     p.add_argument("--eval_json",    default="/data/processed/lidc_eval.json")
-    p.add_argument("--vila_repo",    default="~/projects/VILA-M3_nafis/VLM-Radiology-Agent-Framework")
+    p.add_argument("--vila_repo",    default="../VLM-Radiology-Agent-Framework")
     p.add_argument("--model_path",   default="MONAI/Llama3-VILA-M3-8B")
     p.add_argument("--lora_adapter", default=None)
     p.add_argument("--condition",

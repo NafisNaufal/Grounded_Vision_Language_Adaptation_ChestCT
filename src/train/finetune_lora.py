@@ -10,13 +10,13 @@ Usage:
     python src/train/finetune_lora.py \
         --config configs/train_config.yaml \
         --data_path /data/processed/ctrate_train.json \
-        --vila_repo ~/projects/VILA-M3_nafis/VLM-Radiology-Agent-Framework
+        --vila_repo ../VLM-Radiology-Agent-Framework
 
 For multi-GPU training (all 3 L40s):
     torchrun --nproc_per_node=3 src/train/finetune_lora.py \
         --config configs/train_config.yaml \
         --data_path /data/processed/ctrate_train.json \
-        --vila_repo ~/projects/VILA-M3_nafis/VLM-Radiology-Agent-Framework
+        --vila_repo ../VLM-Radiology-Agent-Framework
 """
 
 import argparse
