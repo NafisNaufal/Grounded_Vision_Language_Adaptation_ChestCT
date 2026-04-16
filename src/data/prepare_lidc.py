@@ -177,29 +177,27 @@ def main():
 
     print(f"Loaded {len(annotations)} annotated scans from LIDC-IDRI")
 
+    import numpy as np
+    if not hasattr(np, "int"):
+        np.int = int
+    import pylidc as pl
+
+    # Build a lookup: scan_id (str) → pylidc Scan object
+    pl_scans = {str(s.id): s for s in pl.query(pl.Scan).all()}
+
     records = []
-    dicom_base = lidc_root / "dicoms"
 
     for scan_meta in tqdm(annotations, desc="Processing LIDC-IDRI"):
         patient_id = scan_meta["patient_id"]
         scan_id = scan_meta["scan_id"]
         volume_id = f"lidc_{patient_id}_{scan_id}"
 
-        # Locate DICOM files for this scan
-        patient_dir = dicom_base / patient_id
-        if not patient_dir.exists():
-            # pylidc stores files under LIDC-IDRI/<patient_id>/<study>/<series>
-            candidates = list(dicom_base.glob(f"*{patient_id}*/**/*.dcm"))
-            if not candidates:
-                print(f"  Warning: DICOM not found for {patient_id}, skipping")
-                continue
-            dicom_dir = candidates[0].parent
-        else:
-            series_dirs = [d for d in patient_dir.rglob("*") if d.is_dir() and list(d.glob("*.dcm"))]
-            if not series_dirs:
-                print(f"  Warning: No DICOM series under {patient_dir}, skipping")
-                continue
-            dicom_dir = series_dirs[0]
+        # Use pylidc to get the DICOM directory directly
+        pl_scan = pl_scans.get(scan_id)
+        if pl_scan is None:
+            print(f"  Warning: scan {scan_id} not found in pylidc, skipping")
+            continue
+        dicom_dir = Path(pl_scan.get_path_to_dicom_files())
 
         try:
             vol = load_dicom_series(dicom_dir)
