@@ -192,12 +192,16 @@ def main():
         scan_id = scan_meta["scan_id"]
         volume_id = f"lidc_{patient_id}_{scan_id}"
 
-        # Use pylidc to get the DICOM directory directly
+        # Use pylidc to get the DICOM directory via series instance UID
         pl_scan = pl_scans.get(scan_id)
         if pl_scan is None:
             print(f"  Warning: scan {scan_id} not found in pylidc, skipping")
             continue
-        dicom_dir = Path(pl_scan.get_path_to_dicom_files())
+        # tcia_utils downloads into folders named by series UID
+        dicom_dir = lidc_root / "dicoms" / pl_scan.series_instance_uid
+        if not dicom_dir.exists() or not list(dicom_dir.glob("*.dcm")):
+            print(f"  Warning: DICOM not found for {patient_id} ({pl_scan.series_instance_uid}), skipping")
+            continue
 
         try:
             vol = load_dicom_series(dicom_dir)
