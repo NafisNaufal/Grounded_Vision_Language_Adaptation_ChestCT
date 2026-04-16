@@ -125,15 +125,33 @@ def _build_consensus_mask(
         for cluster in scan.cluster_annotations():
             if len(cluster) < 3:
                 continue
-            # build_mask returns (mask, cbbox, masks) - use the full-volume mask
-            cmask, cbbox, _ = pl.utils.consensus(cluster, clevel=0.5, pad=0)
-            slc = (
-                slice(cbbox[0].start, cbbox[0].stop),
-                slice(cbbox[1].start, cbbox[1].stop),
-                slice(cbbox[2].start, cbbox[2].stop),
-            )
-            # pylidc mask is (x, y, z); our volume is (z, y, x) — transpose
-            consensus_mask[slc[2], slc[1], slc[0]] |= cmask.transpose(2, 1, 0)
+            # Manually build consensus: voxel is positive if >=3 annotations agree
+            # Each annotation has boolean_mask() and bbox() methods
+            vote_mask = None
+            bbox = None
+            for ann in cluster:
+                bmask = ann.boolean_mask()          # (x, y, z) bool array
+                bb = ann.bbox()                     # list of slices [x_slc, y_slc, z_slc]
+                if vote_mask is None:
+                    # initialise vote accumulator to full bounding box size
+                    bbox = bb
+                    vote_mask = bmask.astype(np.uint8)
+                else:
+                    # expand to union bounding box and add votes
+                    vote_mask = vote_mask + bmask.astype(np.uint8)
+
+            if vote_mask is None:
+                continue
+
+            # Keep voxels where >=3 radiologists agreed
+            cmask = (vote_mask >= 3).astype(np.uint8)
+            # bbox slices are [x_slc, y_slc, z_slc]; volume is (z, y, x)
+            x_slc, y_slc, z_slc = bbox[0], bbox[1], bbox[2]
+            try:
+                consensus_mask[z_slc, y_slc, x_slc] |= cmask.transpose(2, 1, 0)
+            except ValueError:
+                # shape mismatch from unequal bboxes — skip this cluster
+                continue
 
         nib.save(
             nib.Nifti1Image(consensus_mask, affine=np.eye(4)),
