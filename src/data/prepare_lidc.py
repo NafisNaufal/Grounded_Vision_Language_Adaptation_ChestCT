@@ -127,33 +127,32 @@ def _build_consensus_mask(
         for cluster in scan.cluster_annotations():
             if len(cluster) < 3:
                 continue
-            # Manually build consensus: voxel is positive if >=3 annotations agree
-            # Each annotation has boolean_mask() and bbox() methods
-            vote_mask = None
-            bbox = None
+            # Compute union bounding box across all annotations
+            bboxes = [ann.bbox() for ann in cluster]  # each: [x_slc, y_slc, z_slc]
+            x0 = min(bb[0].start for bb in bboxes)
+            x1 = max(bb[0].stop  for bb in bboxes)
+            y0 = min(bb[1].start for bb in bboxes)
+            y1 = max(bb[1].stop  for bb in bboxes)
+            z0 = min(bb[2].start for bb in bboxes)
+            z1 = max(bb[2].stop  for bb in bboxes)
+
+            # Vote accumulator in union bbox space (x, y, z)
+            vote = np.zeros((x1-x0, y1-y0, z1-z0), dtype=np.uint8)
             for ann in cluster:
-                bmask = ann.boolean_mask()          # (x, y, z) bool array
-                bb = ann.bbox()                     # list of slices [x_slc, y_slc, z_slc]
-                if vote_mask is None:
-                    # initialise vote accumulator to full bounding box size
-                    bbox = bb
-                    vote_mask = bmask.astype(np.uint8)
-                else:
-                    # expand to union bounding box and add votes
-                    vote_mask = vote_mask + bmask.astype(np.uint8)
+                bb = ann.bbox()
+                bmask = ann.boolean_mask().astype(np.uint8)
+                ox = bb[0].start - x0
+                oy = bb[1].start - y0
+                oz = bb[2].start - z0
+                vote[ox:ox+bmask.shape[0],
+                     oy:oy+bmask.shape[1],
+                     oz:oz+bmask.shape[2]] += bmask
 
-            if vote_mask is None:
-                continue
-
-            # Keep voxels where >=3 radiologists agreed
-            cmask = (vote_mask >= 3).astype(np.uint8)
-            # bbox slices are [x_slc, y_slc, z_slc]; volume is (z, y, x)
-            x_slc, y_slc, z_slc = bbox[0], bbox[1], bbox[2]
-            try:
-                consensus_mask[z_slc, y_slc, x_slc] |= cmask.transpose(2, 1, 0)
-            except ValueError:
-                # shape mismatch from unequal bboxes — skip this cluster
-                continue
+            # Consensus: voxel positive if >=3 radiologists agreed
+            cmask = (vote >= 3).astype(np.uint8)   # (x, y, z)
+            # Volume is (z, y, x) — transpose
+            cmask_zyx = cmask.transpose(2, 1, 0)
+            consensus_mask[z0:z1, y0:y1, x0:x1] |= cmask_zyx
 
         nib.save(
             nib.Nifti1Image(consensus_mask, affine=np.eye(4)),
