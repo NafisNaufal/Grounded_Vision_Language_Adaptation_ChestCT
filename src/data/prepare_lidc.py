@@ -104,6 +104,9 @@ def _build_consensus_mask(
     Saves as NIfTI to masks_dir/<volume_id>_gt.nii.gz and returns the path.
     """
     try:
+        import numpy as np
+        if not hasattr(np, "int"):      # numpy >= 1.24 removed np.int
+            np.int = int
         import pylidc as pl
         import nibabel as nib
 
