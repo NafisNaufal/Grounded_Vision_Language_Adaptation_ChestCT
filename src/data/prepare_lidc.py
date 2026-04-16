@@ -119,7 +119,7 @@ def _build_consensus_mask(
             return None
 
         consensus_mask = np.zeros(vol_shape, dtype=np.uint8)
-        for cluster in scan.cluster_annotations(clevel=0.5):
+        for cluster in scan.cluster_annotations():
             if len(cluster) < 3:
                 continue
             # build_mask returns (mask, cbbox, masks) - use the full-volume mask

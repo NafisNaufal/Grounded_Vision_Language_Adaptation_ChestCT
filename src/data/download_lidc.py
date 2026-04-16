@@ -116,7 +116,7 @@ def build_annotation_index(output_dir: Path) -> None:
     records = []
     for scan in scans:
         try:
-            clusters = scan.cluster_annotations(clevel=0.5)
+            clusters = scan.cluster_annotations()
         except Exception as e:
             print(f"  Skipping {scan.patient_id}: {e}")
             continue
