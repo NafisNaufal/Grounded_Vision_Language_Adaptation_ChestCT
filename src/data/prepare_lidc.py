@@ -105,8 +105,10 @@ def _build_consensus_mask(
     """
     try:
         import numpy as np
-        if not hasattr(np, "int"):      # numpy >= 1.24 removed np.int
-            np.int = int
+        if not hasattr(np, "int"):   np.int   = int    # removed in numpy 1.24
+        if not hasattr(np, "bool"):  np.bool  = bool
+        if not hasattr(np, "float"): np.float = float
+        if not hasattr(np, "complex"): np.complex = complex
         import pylidc as pl
         import nibabel as nib
 
@@ -196,8 +198,10 @@ def main():
     print(f"Loaded {len(annotations)} annotated scans from LIDC-IDRI")
 
     import numpy as np
-    if not hasattr(np, "int"):
-        np.int = int
+    if not hasattr(np, "int"):   np.int   = int
+    if not hasattr(np, "bool"):  np.bool  = bool
+    if not hasattr(np, "float"): np.float = float
+    if not hasattr(np, "complex"): np.complex = complex
     import pylidc as pl
 
     # Build a lookup: scan_id (str) → pylidc Scan object

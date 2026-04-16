@@ -104,8 +104,10 @@ def configure_pylidc(dicom_home: str) -> None:
 def build_annotation_index(output_dir: Path) -> None:
     try:
         import numpy as np
-        if not hasattr(np, "int"):      # numpy >= 1.24 removed np.int
-            np.int = int
+        if not hasattr(np, "int"):   np.int   = int
+        if not hasattr(np, "bool"):  np.bool  = bool
+        if not hasattr(np, "float"): np.float = float
+        if not hasattr(np, "complex"): np.complex = complex
         import pylidc as pl
     except ImportError:
         raise ImportError(
