@@ -158,8 +158,8 @@ def main():
     if args.condition != "direct_vista3d":
         # Register VILA-M3 custom architecture (llava_llama) with transformers
         try:
-            from llava.model.language_model.llava_llama import LlavaLlamaForCausalLM  # type: ignore  # noqa
-        except ImportError:
+            import llava.model.language_model.llava_llama  # type: ignore  # noqa
+        except Exception:
             pass
 
         from transformers import AutoProcessor, AutoModelForCausalLM

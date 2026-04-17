@@ -127,8 +127,8 @@ def build_lora_model(model_name: str, lora_cfg: dict):
 
     # Register VILA-M3 custom architecture with transformers
     try:
-        from llava.model.language_model.llava_llama import LlavaLlamaForCausalLM  # type: ignore  # noqa
-    except ImportError:
+        import llava.model.language_model.llava_llama  # type: ignore  # noqa
+    except Exception:
         pass
 
     model = AutoModelForCausalLM.from_pretrained(
