@@ -174,6 +174,12 @@ def main():
     processed_root = Path(cfg["data"]["processed_root"])
     k_values = cfg["eval"]["retrieval_k"]
 
+    # Register VILA-M3 custom architecture with transformers
+    try:
+        from llava.model.language_model.llava_llama import LlavaLlamaForCausalLM  # type: ignore  # noqa
+    except ImportError:
+        pass
+
     # Load model
     print(f"Loading model: {args.model_path}")
     if args.is_lora_adapter:

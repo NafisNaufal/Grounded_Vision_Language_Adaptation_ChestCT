@@ -125,6 +125,12 @@ def build_lora_model(model_name: str, lora_cfg: dict):
     """Load VILA-M3 and attach a LoRA adapter."""
     print(f"Loading base model: {model_name}")
 
+    # Register VILA-M3 custom architecture with transformers
+    try:
+        from llava.model.language_model.llava_llama import LlavaLlamaForCausalLM  # type: ignore  # noqa
+    except ImportError:
+        pass
+
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         torch_dtype=torch.bfloat16,

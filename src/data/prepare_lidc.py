@@ -268,7 +268,7 @@ def main():
     with open(out_path, "w") as f:
         json.dump(records, f, indent=2)
 
-    total_nodules = sum(len(r["gt_boxes_ijk"]) for r in records)
+    total_nodules = sum(1 for r in records if r.get("gt_mask_path"))
     print(f"\nPreprocessing complete.")
     print(f"  Evaluation records : {len(records)}")
     print(f"  Total gt nodules   : {total_nodules}")

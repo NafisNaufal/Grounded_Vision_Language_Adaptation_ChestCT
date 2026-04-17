@@ -155,6 +155,12 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     if args.condition != "direct_vista3d":
+        # Register VILA-M3 custom architecture (llava_llama) with transformers
+        try:
+            from llava.model.language_model.llava_llama import LlavaLlamaForCausalLM  # type: ignore  # noqa
+        except ImportError:
+            pass
+
         from transformers import AutoProcessor, AutoModelForCausalLM
         model = AutoModelForCausalLM.from_pretrained(
             args.model_path, torch_dtype=torch.bfloat16,
