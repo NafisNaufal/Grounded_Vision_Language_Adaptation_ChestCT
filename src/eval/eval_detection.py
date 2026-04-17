@@ -80,7 +80,7 @@ def call_vista3d(nii_path: str, output_dir: Path, vista3d_expert) -> np.ndarray 
     return None
 
 
-def run_via_vlm(record, processed_root, output_dir, model, processor, vista3d, device):
+def run_via_vlm(record, processed_root, output_dir, model, tokenizer, image_processor, vista3d, device):
     """
     Run VILA-M3. If the model emits <VISTA3D(lung tumor)>, intercept and
     call VISTA3D. Returns (mask_or_None, was_routed).
@@ -99,14 +99,17 @@ def run_via_vlm(record, processed_root, output_dir, model, processor, vista3d, d
         "<image>\n" * len(images)
         + "Identify and localise pulmonary nodules in this chest CT scan."
     )
-    inputs = processor(
-        text=prompt, images=images,
-        return_tensors="pt", truncation=True, max_length=512,
-    ).to(device)
+
+    input_ids = tokenizer(prompt, return_tensors="pt", truncation=True,
+                          max_length=512).input_ids.to(device)
+    image_tensor = image_processor.preprocess(images, return_tensors="pt")["pixel_values"]
+    if isinstance(image_tensor, list):
+        image_tensor = torch.stack(image_tensor)
+    image_tensor = image_tensor.to(device=device, dtype=torch.bfloat16)
 
     with torch.no_grad():
-        out = model.generate(**inputs, max_new_tokens=128)
-    response = processor.decode(out[0], skip_special_tokens=False)
+        out = model.generate(input_ids, images=image_tensor, max_new_tokens=128)
+    response = tokenizer.decode(out[0], skip_special_tokens=False)
 
     if "VISTA3D" in response and "lung tumor" in response.lower():
         mask = call_vista3d(record.get("nii_path", ""), output_dir, vista3d)
@@ -152,26 +155,24 @@ def main():
     from experts.expert_monai_vista3d import ExpertVista3D  # type: ignore
     vista3d = ExpertVista3D()
 
-    model = processor = None
+    model = tokenizer = image_processor = None
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     if args.condition != "direct_vista3d":
-        # Register VILA-M3 custom architecture (llava_llama) with transformers
-        try:
-            import llava.model.language_model.llava_llama  # type: ignore  # noqa
-        except Exception:
-            pass
+        from llava.model.builder import load_pretrained_model  # type: ignore
 
-        from transformers import AutoProcessor, AutoModelForCausalLM
-        model = AutoModelForCausalLM.from_pretrained(
-            args.model_path, torch_dtype=torch.bfloat16,
-            device_map="auto", trust_remote_code=True,
+        lora_path = args.lora_adapter if (args.condition == "finetuned" and args.lora_adapter) else None
+        model_base = args.model_path if lora_path else None
+
+        tokenizer, model, image_processor, _ = load_pretrained_model(
+            model_path=lora_path or args.model_path,
+            model_base=model_base,
+            model_name="llava_llama",
+            torch_dtype=torch.bfloat16,
+            device_map="auto",
         )
-        processor = AutoProcessor.from_pretrained(args.model_path, trust_remote_code=True)
-        if args.condition == "finetuned" and args.lora_adapter:
-            from peft import PeftModel
-            model = PeftModel.from_pretrained(model, args.lora_adapter)
-            print(f"LoRA adapter: {args.lora_adapter}")
+        if lora_path:
+            print(f"LoRA adapter: {lora_path}")
         model.eval()
 
     all_dice, all_iou = [], []
@@ -193,7 +194,8 @@ def main():
                 routed = pred_mask is not None
             else:
                 pred_mask, routed = run_via_vlm(
-                    record, processed_root, tmp_path, model, processor, vista3d, device
+                    record, processed_root, tmp_path, model,
+                    tokenizer, image_processor, vista3d, device
                 )
 
             if routed:
