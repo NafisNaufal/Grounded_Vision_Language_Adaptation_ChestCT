@@ -105,7 +105,7 @@ def run_via_vlm(record, processed_root, output_dir, model, tokenizer, image_proc
     image_tensor = image_processor.preprocess(images, return_tensors="pt")["pixel_values"]
     if isinstance(image_tensor, list):
         image_tensor = torch.stack(image_tensor)
-    image_tensor = image_tensor.to(device=device, dtype=torch.bfloat16)
+    image_tensor = image_tensor.to(device=device, dtype=model.dtype)
 
     with torch.no_grad():
         out = model.generate(input_ids, images=image_tensor, max_new_tokens=128)
@@ -168,7 +168,6 @@ def main():
             model_path=lora_path or args.model_path,
             model_base=model_base,
             model_name="llava_llama",
-            torch_dtype=torch.bfloat16,
             device_map="auto",
         )
         if lora_path:
