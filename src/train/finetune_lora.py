@@ -171,9 +171,10 @@ def main():
     # Optionally add the VILA-M3 repo to the Python path so its modules are importable
     if args.vila_repo:
         vila_repo = str(Path(args.vila_repo).expanduser())
-        if vila_repo not in sys.path:
-            sys.path.insert(0, vila_repo)
-            sys.path.insert(0, str(Path(vila_repo) / "m3"))
+        for p in [vila_repo, str(Path(vila_repo) / "m3"),
+                  str(Path(vila_repo) / "thirdparty/VILA")]:
+            if p not in sys.path:
+                sys.path.insert(0, p)
 
     with open(args.config) as f:
         cfg = yaml.safe_load(f)

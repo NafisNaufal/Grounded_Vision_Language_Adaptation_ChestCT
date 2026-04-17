@@ -161,11 +161,18 @@ def parse_args():
     p.add_argument("--base_model", default="MONAI/Llama3-VILA-M3-8B",
                    help="Base model to load before applying LoRA adapter")
     p.add_argument("--output_json", default="results/retrieval_results.json")
+    p.add_argument("--vila_repo", default="../VLM-Radiology-Agent-Framework")
     return p.parse_args()
 
 
 def main():
     args = parse_args()
+
+    import sys
+    vila_repo = str(Path(args.vila_repo).expanduser().resolve())
+    for p in [vila_repo, f"{vila_repo}/m3", f"{vila_repo}/thirdparty/VILA"]:
+        if p not in sys.path:
+            sys.path.insert(0, p)
 
     with open(args.config) as f:
         cfg = yaml.safe_load(f)

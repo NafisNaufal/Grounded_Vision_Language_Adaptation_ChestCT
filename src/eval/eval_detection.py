@@ -139,7 +139,8 @@ def main():
 
     processed_root = Path(cfg["data"]["processed_root"])
     vila_repo = str(Path(args.vila_repo).expanduser())
-    for p in [vila_repo, f"{vila_repo}/m3", f"{vila_repo}/m3/demo"]:
+    for p in [vila_repo, f"{vila_repo}/m3", f"{vila_repo}/m3/demo",
+              f"{vila_repo}/thirdparty/VILA"]:
         if p not in sys.path:
             sys.path.insert(0, p)
 
